@@ -8,9 +8,11 @@
 //    = 35 vertical columns of 8 keys = 5 sections of 7 columns.
 //
 //  Parts are built around:
-//    - Kailh Choc v1 low-profile switches (PG1350), plate mounted
-//    - 21 mm hex keycaps: s-ol / FKcaps HEX caps (20.96 mm) or the
-//      printable cap in this file
+//    - Moyu Studio Yurui HE linear switches (Hall-effect, MX-style,
+//      standard profile, 3.6 mm travel), plate mounted. The switch only
+//      carries a magnet: a linear Hall sensor on the PCB under each
+//      switch measures the key travel (velocity + aftertouch)
+//    - printed 21 mm flat-top hex keycaps with an MX cross socket
 //    - one custom PCB + one Raspberry Pi Pico per 56-key section
 //
 //  The 920 x 355 mm body does not fit a 3D printer, so it is split into
@@ -50,8 +52,8 @@ keys_per_col = 8;
 section_drop = 1;
 
 /* [Switch plate] */
-plate_t = 1.2;            // Choc v1 clips are made for 1.2 mm
-choc_cut = 13.8;          // VERIFY
+plate_t = 1.5;            // MX-style clips are made for 1.5 mm
+switch_cut = 14.0;        // MX standard cutout, VERIFY with the prototype's plate_test
 plate_margin_y = 20;      // plate beyond the first/last key centre (y)
 
 /* [Enclosure] */
@@ -59,11 +61,11 @@ wall_t = 3;
 floor_t = 3;
 deck_t = 3;               // top surface around the plates
 pcb_t = 1.6;
-pcb_to_plate = 2.2;       // VERIFY with Choc v1 datasheet
+pcb_to_plate = 3.5;       // PCB top to plate underside: MX standard is 5.0 mm PCB top to plate top. VERIFY on the real switch
 pcb_margin = 8.5;         // PCB edge beyond key centres
 rib_t = 4;                // joining rib thickness (per tile)
 rib_h = 20;               // rib height under the PCBs
-boss_d = 6;
+plate_boss_d = 6;
 screw_pilot_d = 1.8;      // M2 self-tapping into bosses
 screw_clear_d = 2.4;
 bolt_d = 3.4;             // M3 bolts joining tiles
@@ -77,14 +79,22 @@ hinge_from_back = 45;
 front_foot_y = 20;
 lug_t = 6;
 
-/* [Keycap (printable alternative)] */
+/* [Switch - Moyu Yurui HE, MX-style] */
+// Top housing height above the plate top. VERIFY on the real switch
+housing_h = 6.6;
+// Stem slider top above the housing top, key at rest (~ travel). VERIFY
+stem_rise = 3.6;
+travel = 3.6;
+
+/* [Keycap (printed, MX cross socket)] */
 cap_h = 2.6;
 cap_chamfer = 0.6;
-stem_h = 3.0;             // VERIFY Choc v1 stem legs
-stem_w = 1.2;
-stem_l = 3.0;
-stem_gap = 5.7;
-stem_tol = 0.10;
+boss_d = 5.6;             // socket tube under the cap
+boss_h = 2.0;             // tube length below the cap underside
+cross_l = 4.0;            // MX stem cross arm length. VERIFY on the real switch
+cross_w = 1.2;            // MX stem cross arm width. VERIFY
+cross_depth = 3.8;        // socket depth from the bottom of the tube
+stem_tol = 0.15;          // added to the cross arms, VERIFY with the prototype's stem_test
 batch_x = 4;
 batch_y = 4;
 
@@ -163,7 +173,7 @@ module plate_2d(s) {
     difference() {
         plate_rect(s);
         for (c = [s * cols_per_section : (s + 1) * cols_per_section - 1], k = [0 : keys_per_col - 1])
-            translate(key_xy(c, k)) square(choc_cut, center = true);
+            translate(key_xy(c, k)) square(switch_cut, center = true);
         for (p = plate_screws(s)) translate(p) circle(d = screw_clear_d);
     }
 }
@@ -227,7 +237,7 @@ module enclosure_body() {
     linear_extrude(body_h - deck_t) difference() { body_outline(); body_outline(wall_t); }
     // plate bosses
     for (s = [0 : sections - 1], p = plate_screws(s))
-        translate(p) cylinder(d = boss_d, h = body_h - plate_t);
+        translate(p) cylinder(d = plate_boss_d, h = body_h - plate_t);
     // Pico standoffs
     for (s = [0 : sections - 1], h = pico_holes)
         translate(pico_pos(s) + h) cylinder(d = 4.5, h = floor_t + 2.5);
@@ -281,12 +291,16 @@ module keycap() {
         translate([0, 0, cap_h - cap_chamfer]) linear_extrude(eps) hex2d(key_flat);
         translate([0, 0, cap_h - eps]) linear_extrude(eps) hex2d(key_flat - 2 * cap_chamfer);
     }
-    // Choc v1 stem legs. Flat-top cap: legs side by side along x.
-    // VERIFY the leg direction against your switches (the cap may need
-    // 90 deg rotation on the PCB instead: the plate is the same either way)
-    for (s = [-1, 1])
-        translate([s * stem_gap / 2, 0, -stem_h / 2 + eps])
-            cube([stem_w - stem_tol, stem_l - stem_tol, stem_h], center = true);
+    // MX cross socket in a tube under the cap. The cross is symmetric, so
+    // the hex stays flat-top whichever way the switch is turned
+    difference() {
+        translate([0, 0, -boss_h]) cylinder(d = boss_d, h = boss_h + eps);
+        translate([0, 0, -boss_h - eps]) linear_extrude(cross_depth + eps) mx_cross_2d(stem_tol);
+    }
+}
+module mx_cross_2d(tol) {
+    square([cross_l + tol, cross_w + tol], center = true);
+    square([cross_w + tol, cross_l + tol], center = true);
 }
 module keycap_print_batch() {
     for (i = [0 : batch_x - 1], j = [0 : batch_y - 1])
@@ -305,10 +319,13 @@ module kickstand_leg() {
 // ---------------------------------------------------------------------
 module switch_ghost() {
     color([0.15, 0.15, 0.15]) {
-        translate([0, 0, -pcb_to_plate]) linear_extrude(pcb_to_plate) square(choc_cut - 0.2, center = true);
-        translate([0, 0, plate_t]) linear_extrude(2.2) square(15, center = true);
+        translate([0, 0, -pcb_to_plate]) linear_extrude(pcb_to_plate + plate_t) square(switch_cut - 0.2, center = true);
+        translate([0, 0, plate_t]) linear_extrude(housing_h) square(15.6, center = true);
     }
+    color("orangered") translate([0, 0, plate_t + housing_h]) linear_extrude(stem_rise) mx_cross_2d(0);
 }
+// keycap underside above the plate underside, key at rest
+cap_z = plate_t + housing_h + stem_rise + boss_h;
 module assembly() {
     for (tx = [0 : sections - 1], ty = [0 : 1]) {
         color("dimgray") case_tile(tx, ty);
@@ -324,7 +341,7 @@ module assembly() {
     for (c = [0 : ncols - 1], k = [0 : keys_per_col - 1])
         translate([key_xy(c, k)[0], key_xy(c, k)[1], plate_z]) {
             switch_ghost();
-            color(key_colour(c, k)) translate([0, 0, plate_t + 2.2 + 1.0]) keycap();
+            color(key_colour(c, k)) translate([0, 0, cap_z]) keycap();
         }
     // kickstand legs, deployed
     color("dimgray") for (x = hinge_x)
@@ -344,6 +361,8 @@ echo(str("PCB (per section): ", (cols_per_section - 1) * colsp + 2 * pcb_margin,
     sec_kymax(0) - sec_kymin(0) + 2 * pcb_margin, " mm"));
 for (tx = [0 : sections - 1])
     echo(str("Tile column ", tx, ": ", x_cuts[tx + 1] - x_cuts[tx], " x ", body_d / 2, " mm (print 2: front + back)"));
+echo(str("Switch stack: PCB bottom at ", body_h - plate_t - pcb_to_plate - pcb_t, " mm from the floor underside, rib tops at ",
+    floor_t + rib_h, " mm; keycap top ", cap_z + cap_h - plate_t, " mm above the deck (", cap_z + cap_h - plate_t - travel, " mm pressed)"));
 echo(str("Kickstand leg length (hinge to foot centre): ", leg_len, " mm"));
 echo(str("Highest point on kickstand: ~", max_height, " mm (Lumatone: 125 mm)"));
 

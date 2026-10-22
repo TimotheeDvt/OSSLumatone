@@ -3,15 +3,21 @@
 //
 //  Same key geometry as the full Lumatone-size build
 //  (hex_midi_controller.scad): 24.15 mm key spacing, 21 mm flat-top
-//  hex keys, Kailh Choc v1 switches on a 1.2 mm plate.
+//  hex keys, Moyu Yurui HE (Hall-effect, MX-style) switches on a
+//  1.5 mm plate.
 //
 //  6 keys = 3 columns x 2 keys, so you can try the vertical neighbour
 //  and both diagonal neighbours of a key.
 //
-//  No custom PCB needed: hand-wire each switch to its own Pico pin.
-//    Switch 0..5  ->  GP2..GP7   (other switch pin -> GND,
-//                                 use the Pico's internal pull-ups)
+//  No custom PCB: the switches only carry a magnet, so a 70 x 50 mm
+//  perfboard sits under the plate with one linear Hall sensor centred
+//  under each switch (3 wires each: 3.3 V, GND, signal) and one
+//  74HC4051 multiplexer feeding a single Pico ADC pin. Through-hole
+//  SS49E sensors lie flat, branded face up, legs bent through the board:
+//    Sensor 0..5 -> 74HC4051 Y0..Y5, S0..S2 -> GP0..GP2,
+//    E -> GND, Z -> GP26 (ADC0)
 //    Key order: column 0 bottom, column 0 top, column 1 bottom, ...
+//  The console prints each sensor position on the perfboard.
 //
 //  Also includes two small test prints for the values marked VERIFY
 //  in the full model: plate cutout size and keycap stem fit.
@@ -30,14 +36,14 @@ cols = 3;
 keys_per_col = 2;
 
 /* [Switch plate] */
-plate_t = 1.2;
-choc_cut = 13.8;    // VERIFY with plate_test
+plate_t = 1.5;
+switch_cut = 14.0;  // MX standard, VERIFY with plate_test
 plate_margin = 10;  // plate beyond the keycap edges
 
 /* [Case] */
 wall_t = 2.5;
 floor_t = 2;
-case_h = 18;        // top of the walls = underside of the plate
+case_h = 24;        // top of the walls = underside of the plate (room for the perfboard + mux under it)
 corner_r = 4;
 boss_d = 6;
 boss_inset = 5;     // screw centre from the outer corner
@@ -50,18 +56,33 @@ foot_d = 8;         // recesses for stick-on rubber feet (8 mm)
 foot_depth = 1;
 foot_inset = 9;
 
+/* [Sensor board] */
+board_w = 70;           // standard 70 x 50 mm perfboard
+board_d = 50;
+board_t = 1.6;
+board_hole_inset = 2.5; // corner hole centres from the board edges, VERIFY on your board
+pcb_to_plate = 3.5;     // switch bottom to plate underside, same as the full build. VERIFY
+// Through-hole sensor (SS49E, flat TO-92S) lying flat on the board, face up:
+// the board sits this much lower so the switch rests on the sensor, not on the board
+sensor_h = 1.6;
+
+/* [Switch - Moyu Yurui HE, MX-style] */
+housing_h = 6.6;    // top housing above the plate top, VERIFY
+stem_rise = 3.6;    // stem slider top above the housing top at rest, VERIFY
+
 /* [Keycap] */
 cap_h = 2.6;
 cap_chamfer = 0.6;
-stem_h = 3.0;
-stem_w = 1.2;
-stem_l = 3.0;
-stem_gap = 5.7;
-stem_tol = 0.10;    // VERIFY with stem_test
+cap_boss_d = 5.6;
+cap_boss_h = 2.0;
+cross_l = 4.0;      // MX stem cross, VERIFY on the real switch
+cross_w = 1.2;
+cross_depth = 3.8;
+stem_tol = 0.15;    // VERIFY with stem_test
 
 /* [Test prints] */
-cut_sizes = [13.6, 13.7, 13.8, 13.9, 14.0];
-stem_tols = [0.0, 0.1, 0.2, 0.3];
+cut_sizes = [13.8, 13.9, 14.0, 14.1, 14.2];
+stem_tols = [0.05, 0.10, 0.15, 0.20];
 
 /* [Hidden] */
 $fn = 40;
@@ -86,6 +107,12 @@ function key_xy(c, k) = raw_xy(c, k) + key_off;
 keys = [for (c = [0 : cols - 1], k = [0 : keys_per_col - 1]) [c, k]];
 
 bosses = [for (x = [boss_inset, size_x - boss_inset], y = [boss_inset, size_y - boss_inset]) [x, y]];
+
+// Perfboard centred under the keys, resting on 4 posts
+board_c = [size_x / 2, size_y / 2];
+board_z = case_h - pcb_to_plate - sensor_h - board_t;   // underside of the board
+board_holes = [for (x = [-1, 1], y = [-1, 1])
+    board_c + [x * (board_w / 2 - board_hole_inset), y * (board_d / 2 - board_hole_inset)]];
 
 // Pico (21 x 51 mm) along y, USB end at the back wall
 pico_c = [size_x / 2, size_y - wall_t - 1 - 25.5];
@@ -117,7 +144,7 @@ module hex2d(flat) {             // flat-top hexagon
 module plate() {
     linear_extrude(plate_t) difference() {
         outline();
-        for (kk = keys) translate(key_xy(kk[0], kk[1])) square(choc_cut, center = true);
+        for (kk = keys) translate(key_xy(kk[0], kk[1])) square(switch_cut, center = true);
         for (b = bosses) translate(b) circle(d = screw_clear_d);
     }
 }
@@ -136,7 +163,10 @@ module case_shell() {
             }
             for (h = pico_holes)
                 translate(pico_c + h) cylinder(d = 4.5, h = floor_t + pico_standoff_h);
+            for (h = board_holes)
+                translate(h) cylinder(d = 5, h = board_z);
         }
+        for (h = board_holes) translate([h[0], h[1], board_z - 8]) cylinder(d = screw_pilot_d, h = 9);
         for (b = bosses) translate([b[0], b[1], case_h - 8]) cylinder(d = screw_pilot_d, h = 9);
         for (h = pico_holes) translate([pico_c[0] + h[0], pico_c[1] + h[1], floor_t]) cylinder(d = 1.8, h = 10);
         // USB opening for the Pico, back wall
@@ -154,9 +184,15 @@ module keycap(tol = stem_tol) {
         translate([0, 0, cap_h - cap_chamfer]) linear_extrude(eps) hex2d(key_flat);
         translate([0, 0, cap_h - eps]) linear_extrude(eps) hex2d(key_flat - 2 * cap_chamfer);
     }
-    for (s = [-1, 1])
-        translate([s * stem_gap / 2, 0, -stem_h / 2 + eps])
-            cube([stem_w - tol, stem_l - tol, stem_h], center = true);
+    // MX cross socket in a tube under the cap
+    difference() {
+        translate([0, 0, -cap_boss_h]) cylinder(d = cap_boss_d, h = cap_boss_h + eps);
+        translate([0, 0, -cap_boss_h - eps]) linear_extrude(cross_depth + eps) mx_cross_2d(tol);
+    }
+}
+module mx_cross_2d(tol) {
+    square([cross_l + tol, cross_w + tol], center = true);
+    square([cross_w + tol, cross_l + tol], center = true);
 }
 
 // 6 caps, upside down (top face on the bed)
@@ -167,7 +203,7 @@ module keycap_set() {
 }
 
 // Strip with 5 cutout sizes. Notches on the front edge = position 1..5
-// (13.6, 13.7, 13.8, 13.9, 14.0). Use the size where a switch clips in firmly.
+// (13.8, 13.9, 14.0, 14.1, 14.2). Use the size where a switch clips in firmly.
 module plate_test() {
     n = len(cut_sizes);
     w = 20;
@@ -180,7 +216,7 @@ module plate_test() {
     }
 }
 
-// 4 caps with stem_tol 0.0 / 0.1 / 0.2 / 0.3. Number of side notches = 1..4.
+// 4 caps with stem_tol 0.05 / 0.10 / 0.15 / 0.20. Number of side notches = 1..4.
 // Use the one that holds firmly without cracking.
 module stem_test() {
     for (i = [0 : len(stem_tols) - 1])
@@ -199,20 +235,25 @@ module assembly() {
     color("lightsteelblue") case_shell();
     color("green") translate([pico_c[0] - 10.5, pico_c[1] - 25.5, floor_t + pico_standoff_h]) cube([21, 51, 1]);
     color("silver") translate([0, 0, case_h]) plate();
+    color("tan") translate([board_c[0] - board_w / 2, board_c[1] - board_d / 2, board_z]) cube([board_w, board_d, board_t]);
     for (kk = keys) translate([key_xy(kk[0], kk[1])[0], key_xy(kk[0], kk[1])[1], case_h]) {
         color([0.15, 0.15, 0.15]) {
-            translate([0, 0, -2.2]) linear_extrude(2.2) square(choc_cut - 0.2, center = true);
-            translate([0, 0, plate_t]) linear_extrude(2.2) square(15, center = true);
+            translate([0, 0, -pcb_to_plate]) linear_extrude(pcb_to_plate + plate_t) square(switch_cut - 0.2, center = true);
+            translate([0, 0, plate_t]) linear_extrude(housing_h) square(15.6, center = true);
         }
-        color(key_colour(kk[0], kk[1])) translate([0, 0, plate_t + 2.2 + 1.0]) keycap();
+        color("orangered") translate([0, 0, plate_t + housing_h]) linear_extrude(stem_rise) mx_cross_2d(0);
+        color(key_colour(kk[0], kk[1])) translate([0, 0, plate_t + housing_h + stem_rise + cap_boss_h]) keycap();
     }
 }
 
 // ---------------------------------------------------------------------
 echo(str("Prototype: ", len(keys), " keys, case ", size_x, " x ", size_y, " x ", case_h + plate_t, " mm"));
+// Sensor positions from the perfboard's front-left corner (2.54 mm grid: round to the nearest hole)
+board_corner = board_c - [board_w / 2, board_d / 2];
 for (i = [0 : len(keys) - 1])
-    echo(str("Key ", i, " (column ", keys[i][0], ", key ", keys[i][1], ") -> GP", i + 2,
-             "  centre ", key_xy(keys[i][0], keys[i][1])));
+    echo(str("Key ", i, " (column ", keys[i][0], ", key ", keys[i][1], ") -> 74HC4051 Y", i,
+             "  sensor at ", key_xy(keys[i][0], keys[i][1]) - board_corner, " mm on the perfboard"));
+echo(str("Perfboard underside ", board_z, " mm above the case bottom; Pico top ~", floor_t + pico_standoff_h + 1 + 3.2, " mm"));
 
 if (part == "assembly") assembly();
 else if (part == "case") case_shell();
